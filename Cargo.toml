@@ -7,6 +7,8 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# web server
+picoserve = { version = "0.15.0", path = "../picoserve/picoserve/", features = ["embassy"] }
 embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-sync = { version = "0.6.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy.git", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
@@ -25,13 +27,14 @@ defmt-rtt = "0.4"
 fixed = "1.23.1"
 fixed-macro = "1.2"
 
+
 # for web request example
 #reqwless = { version = "0.13.0", features = ["defmt"] }
 #serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 #serde-json-core = "0.5.1"
 
 # for assign resources example
-#assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "94ad10e2729afdf0fd5a77cd12e68409a982f58a" }
+#assign-resources = { rev = "94ad10e2729afdf0fd5a77cd12e68409a982f58a" }
 
 #cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }

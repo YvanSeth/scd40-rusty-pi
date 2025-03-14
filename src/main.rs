@@ -1,17 +1,14 @@
-//! This example test the RP Pico W on board LED.
-//!
-//! It does not work with the RP Pico board. See blinky.rs.
+//! Raspberry Pi Pico W meat thermometer
 
 #![no_std]
 #![no_main]
-
-use core::str::from_utf8;
+// required for impl in AppProps code for picoserve
+#![feature(impl_trait_in_assoc_type)]
 
 use cyw43::JoinOptions;
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use embassy_executor::Spawner;
-use embassy_net::{Config, StackResources};
-use embassy_net::tcp::TcpSocket;
+use embassy_net::{Config, StackResources, Ipv4Cidr, Ipv4Address};
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
@@ -20,7 +17,13 @@ use embassy_rp::peripherals::USB;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::usb::{Driver, InterruptHandler as USBInterruptHandler};
 use embassy_time::{Duration, Timer};
-use embedded_io_async::Write;
+use heapless::Vec;
+use picoserve::{
+    make_static,
+    routing::{get_service, PathRouter},
+    AppBuilder, AppRouter
+};
+use picoserve::response::File;
 use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -49,6 +52,54 @@ async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'stat
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
     runner.run().await
+}
+
+
+// picoserve HTTP code kicked off using: https://github.com/sammhicks/picoserve/blob/main/examples/embassy/hello_world/src/main.rs
+struct AppProps;
+
+impl AppBuilder for AppProps {
+    type PathRouter = impl PathRouter;
+
+    fn build_app(self) -> picoserve::Router<Self::PathRouter> {
+        picoserve::Router::new()
+            .route(
+                "/", 
+                get_service(File::html(include_str!("html/index.html")))
+            )
+            .route(
+                "/main.css", 
+                get_service(File::css(include_str!("html/main.css")))
+            )
+    }
+}
+
+// 2 is plenty of a little IoT thermometer, right?
+const WEB_TASK_POOL_SIZE: usize = 2;
+
+#[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
+async fn web_task(
+    id: usize,
+    stack: embassy_net::Stack<'static>,
+    app: &'static AppRouter<AppProps>,
+    config: &'static picoserve::Config<Duration>,
+) -> ! {
+    let port = 80;
+    let mut tcp_rx_buffer = [0; 1024];
+    let mut tcp_tx_buffer = [0; 1024];
+    let mut http_buffer = [0; 2048];
+
+    picoserve::listen_and_serve(
+        id,
+        app,
+        config,
+        stack,
+        port,
+        &mut tcp_rx_buffer,
+        &mut tcp_tx_buffer,
+        &mut http_buffer,
+    )
+    .await
 }
 
 #[embassy_executor::main]
@@ -102,8 +153,13 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::dhcpv4(Default::default());
-
+    //let config = Config::dhcpv4(Default::default());
+    let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
+        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 3, 14), 24),
+        dns_servers: Vec::new(),
+        gateway: Some(Ipv4Address::new(192, 168, 3, 1)),
+    });
+    
     // Generate random seed
     let seed = rng.next_u64();
 
@@ -126,17 +182,34 @@ async fn main(spawner: Spawner) {
     }
 
     // Wait for DHCP, not necessary when using static IP
-    log::info!("waiting for DHCP...");
+    /*log::info!("waiting for DHCP...");
     while !stack.is_config_up() {
         Timer::after_millis(100).await;
     }
-    log::info!("DHCP is now up!");
+    log::info!("DHCP is now up!");*/
 
     // And now we can use it!
+    let app = make_static!(AppRouter<AppProps>, AppProps.build_app());
 
+    let config = make_static!(
+        picoserve::Config<Duration>,
+        picoserve::Config::new(picoserve::Timeouts {
+            start_read_request: Some(Duration::from_secs(5)),
+            read_request: Some(Duration::from_secs(1)),
+            write: Some(Duration::from_secs(1)),
+        })
+        .keep_connection_alive()
+    );
+
+    for id in 0..WEB_TASK_POOL_SIZE {
+        spawner.must_spawn(web_task(id, stack, app, config));
+    }
+/*
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
+
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
 
     //let delay = Duration::from_secs(1);
     log::info!("main: pre-loop");
@@ -145,7 +218,7 @@ async fn main(spawner: Spawner) {
         socket.set_timeout(Some(Duration::from_secs(10)));
 
         control.gpio_set(0, false).await;
-        log::info!("Listening on TCP:1234...");
+        log::info!("Listening on TCP:00...");
         if let Err(e) = socket.accept(1234).await {
             log::warn!("accept error: {:?}", e);
             continue;
@@ -183,4 +256,5 @@ async fn main(spawner: Spawner) {
         log::info!("LED off!");
         control.gpio_set(0, false).await;
     }
+    */
 }
