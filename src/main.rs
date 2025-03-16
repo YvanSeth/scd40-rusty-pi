@@ -8,28 +8,35 @@
 use cyw43::JoinOptions;
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use embassy_executor::Spawner;
-use embassy_net::{Config, StackResources, Ipv4Cidr, Ipv4Address};
+use embassy_net::{StackResources, Ipv4Cidr, Ipv4Address};
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::i2c::{self, Config};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::peripherals::USB;
+use embassy_rp::peripherals::I2C1;
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_rp::usb::{Driver, InterruptHandler as USBInterruptHandler};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Timer, Delay};
 use heapless::Vec;
+use libscd::synchronous::scd4x::Scd4x;
 use picoserve::{
     make_static,
-    routing::{get_service, PathRouter},
-    AppBuilder, AppRouter
+    routing::{get, get_service, PathRouter},
+    AppWithStateBuilder, AppRouter,
+    response::DebugValue
 };
 use picoserve::response::File;
+use picoserve::extract::State;
 use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 const WIFI_NETWORK: &str = "bendybogalow";
 const WIFI_PASSWORD: &str = "parsnipcabbageonion";
+const INDEX: &str = include_str!("html/index.html");
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -54,22 +61,84 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
+/*
+async fn co2ppm_to_str {
+    let mut buff : [u8; 20] = [0u8; 20];
+    unsafe {
+        CO2PPM.numtoa(10, &mut buff);
+    }
+    let buffstr: &str = core::str::from_utf8(&mut buff).unwrap();
+    log::info!("CO2PPM from build_app: {}", buffstr);
+    "1234" // works
+    // buffstr // fails for the obvious reason of lifetime
+}
+*/
+/*
+impl Content for AtomicU16 {
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+    fn content_length(&self) -> usize {
+        5;
+    }
+    async fn write_content<W: Write>(self, writer: W) -> Result<(), W::Error> {
+        "fooo".as_bytes().write_content(writer).await
+    }
+}
+*/
+/*
+struct Number {
+    value: u16;
+}
+
+async fn get_number(Number { value }: Number) -> impl IntoResponse {
+    picoserve::response::DebugValue(value)
+}
+*/
+
+struct CO2PPM {
+    co2ppm : u16,
+}
+#[derive(Clone, Copy)]
+struct SharedPPM(&'static Mutex<CriticalSectionRawMutex, CO2PPM>);
+struct AppState {
+    shared_ppm : SharedPPM,
+}
+impl picoserve::extract::FromRef<AppState> for SharedPPM {
+    fn from_ref(state: &AppState) -> Self {
+        state.shared_ppm
+    }
+}
 
 // picoserve HTTP code kicked off using: https://github.com/sammhicks/picoserve/blob/main/examples/embassy/hello_world/src/main.rs
 struct AppProps;
 
-impl AppBuilder for AppProps {
-    type PathRouter = impl PathRouter;
+impl AppWithStateBuilder for AppProps {
+    type State = AppState;
+    type PathRouter = impl PathRouter<AppState>;
 
-    fn build_app(self) -> picoserve::Router<Self::PathRouter> {
+    fn build_app(self) -> picoserve::Router<Self::PathRouter, Self::State> {
+        //let Self { } = self;
+
+        /*let mut buff : [u8; 20] = [0u8; 20];
+        unsafe {
+            let _ = CO2PPM.numtoa(10, &mut buff);
+        }
+        let buffstr: &str = core::str::from_utf8(&mut buff).unwrap();
+        log::info!("CO2PPM from build_app: {}", buffstr);*/
+
         picoserve::Router::new()
             .route(
                 "/", 
-                get_service(File::html(include_str!("html/index.html")))
+                get_service(File::html(INDEX)) // .replace("%{CO2}%", CO2PPM.to_string())))
             )
             .route(
                 "/main.css", 
                 get_service(File::css(include_str!("html/main.css")))
+            )
+            .route(
+                "/data/co2", 
+                get(|State(SharedPPM(co2ppm)): State<SharedPPM>| async move { DebugValue( co2ppm.lock().await.co2ppm ) }),
             )
     }
 }
@@ -83,13 +152,14 @@ async fn web_task(
     stack: embassy_net::Stack<'static>,
     app: &'static AppRouter<AppProps>,
     config: &'static picoserve::Config<Duration>,
+    state: AppState,
 ) -> ! {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve(
+    picoserve::listen_and_serve_with_state(
         id,
         app,
         config,
@@ -98,6 +168,7 @@ async fn web_task(
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
         &mut http_buffer,
+        &state,
     )
     .await
 }
@@ -154,8 +225,9 @@ async fn main(spawner: Spawner) {
         .await;
 
     //let config = Config::dhcpv4(Default::default());
+    log::info!("main: configure static IP");
     let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 3, 14), 24),
+        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 3, 15), 24),
         dns_servers: Vec::new(),
         gateway: Some(Ipv4Address::new(192, 168, 3, 1)),
     });
@@ -164,11 +236,13 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
+    log::info!("main: init network stack");
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
 
     defmt::unwrap!(spawner.spawn(net_task(runner)));
 
+    log::info!("main: await network join");
     loop {
         match control
             .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
@@ -179,6 +253,7 @@ async fn main(spawner: Spawner) {
                 log::error!("join failed with status={}", err.status);
             }
         }
+        Timer::after_millis(100).await;
     }
 
     // Wait for DHCP, not necessary when using static IP
@@ -188,7 +263,39 @@ async fn main(spawner: Spawner) {
     }
     log::info!("DHCP is now up!");*/
 
-    // And now we can use it!
+
+    log::info!("Starting I2C Comms with SCD40");
+    Timer::after_secs(1).await;
+    // this code derived from: https://github.com/SvetlinZarev/libscd/blob/main/examples/embassy-scd4x/src/main.rs
+    let sda = p.PIN_26;
+    let scl = p.PIN_27;
+    let i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, Config::default());
+    log::info!("Initialise Scd4x");
+    Timer::after_secs(1).await;
+    let mut scd = Scd4x::new(i2c, Delay);
+
+    // When re-programming, the controller will be restarted,
+    // but not the sensor. We try to stop it in order to
+    // prevent the rest of the commands failing.
+    log::info!("Stop periodic measurements");
+    Timer::after_secs(1).await;
+    _ = scd.stop_periodic_measurement();
+
+    log::info!("Sensor serial number: {:?}", scd.serial_number());
+    Timer::after_secs(1).await;
+    if let Err(e) = scd.start_periodic_measurement() {
+        log::error!("Failed to start periodic measurement: {:?}", e );
+    }
+
+    let co2ppm = 69;
+    let shared_ppm = SharedPPM(
+        make_static!(Mutex<CriticalSectionRawMutex, CO2PPM>, Mutex::new(CO2PPM { co2ppm })),
+    ); 
+    spawner.must_spawn(read_co2(scd, shared_ppm));
+
+    log::info!("Commence HTTP service");
+    Timer::after_secs(1).await;
+
     let app = make_static!(AppRouter<AppProps>, AppProps.build_app());
 
     let config = make_static!(
@@ -202,7 +309,13 @@ async fn main(spawner: Spawner) {
     );
 
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(id, stack, app, config));
+        spawner.must_spawn(web_task(
+            id,
+            stack,
+            app,
+            config,
+            AppState{ shared_ppm },
+        ));
     }
 /*
     let mut rx_buffer = [0; 4096];
@@ -258,3 +371,23 @@ async fn main(spawner: Spawner) {
     }
     */
 }
+
+#[embassy_executor::task]
+async fn read_co2(
+    mut scd: Scd4x<i2c::I2c<'static, I2C1, i2c::Blocking>, Delay>,
+    shared_ppm: SharedPPM
+) {
+    log::info!("Enter sensor read loop");
+    Timer::after_secs(1).await;
+    loop {
+        if scd.data_ready().unwrap() {
+            let m = scd.read_measurement().unwrap();
+            shared_ppm.0.lock().await.co2ppm = m.co2;
+            log::info!(
+                "CO2: {}\nHumidity: {}\nTemperature: {}", m.co2, m.humidity, m.temperature
+            )
+        }
+        Timer::after_secs(1).await;
+    }
+}
+

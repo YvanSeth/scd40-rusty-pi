@@ -25,9 +25,9 @@ dependencies = [
 
 [[package]]
 name = "arrayvec"
-version = "0.7.4"
+version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "ascii-canvas"
@@ -1109,6 +1109,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
+name = "libscd"
+version = "0.5.0"
+source = "git+https://github.com/SvetlinZarev/libscd.git#9fda7e0b0d6f074717095d0b1e3f44d316fd9e28"
+dependencies = [
+ "defmt",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "litrs"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1170,8 +1180,10 @@ dependencies = [
  "fixed",
  "fixed-macro",
  "heapless 0.8.0",
+ "libscd",
  "log",
  "mipidsi",
+ "numtoa",
  "panic-probe",
  "picoserve",
  "portable-atomic",
@@ -1276,6 +1288,12 @@ dependencies = [
  "quote",
  "syn 2.0.100",
 ]
+
+[[package]]
+name = "numtoa"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa2c4e539b869820a2b82e1aef6ff40aa85e65decdd5185e83fb4b1249cd00f"
 
 [[package]]
 name = "once_cell"
