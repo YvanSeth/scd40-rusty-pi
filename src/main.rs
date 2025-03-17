@@ -1,4 +1,4 @@
-//! Raspberry Pi Pico W meat thermometer
+//! scd40-rusty-pi: Raspberry Pi Pico W CO2 PPM Monitor with Web Interface
 
 #![no_std]
 #![no_main]
@@ -66,22 +66,24 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
 // Shared state related code
 
 // an instance of this will be shared between the sensor read task and the web serve task
-struct CO2PPM {
-    value : u16,
+struct SCD40Data {
+    co2ppm : u16,
+    humidity : f32,
+    temperature : f32,
 }
 
-// some sort of mutex wrapper for a CO2PPM instance?
+// some sort of mutex wrapper for a SCD40Data instance?
 #[derive(Clone, Copy)]
-struct SharedPPM(&'static Mutex<CriticalSectionRawMutex, CO2PPM>);
+struct SharedSCD40Data(&'static Mutex<CriticalSectionRawMutex, SCD40Data>);
 
-// this then allows us to pass the shared CO2PPM into the picoserve interface
+// this then allows us to pass the shared SCD40Data into the picoserve interface
 struct AppState {
-    shared_ppm : SharedPPM,
+    shared_scd40data : SharedSCD40Data,
 }
-// this is used in the route closure below to extract the SharedPPM struct from the app state
-impl picoserve::extract::FromRef<AppState> for SharedPPM {
+// this is used in the route closure below to extract the SharedSCD40Data struct from the app state
+impl picoserve::extract::FromRef<AppState> for SharedSCD40Data {
     fn from_ref(state: &AppState) -> Self {
-        state.shared_ppm
+        state.shared_scd40data
     }
 }
 
@@ -108,10 +110,25 @@ impl AppWithStateBuilder for AppProps {
             .route(
                 "/data/co2", 
                 get(
-                    |State(SharedPPM(co2ppm)): State<SharedPPM>| //newbie note: | delimits a closure
-                    async move { DebugValue( co2ppm.lock().await.value) }
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
+                    async move { DebugValue( scd40data.lock().await.co2ppm) }
                 ),
             )
+            .route(
+                "/data/temperature", 
+                get(
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| 
+                    async move { DebugValue( scd40data.lock().await.temperature) }
+                ),
+            )
+            .route(
+                "/data/humidity", 
+                get(
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>|
+                    async move { DebugValue( scd40data.lock().await.humidity) }
+                ),
+            )
+            // TODO: is thre a way to genericise the above?
     }
 }
 
@@ -152,13 +169,16 @@ async fn web_task(
 #[embassy_executor::task]
 async fn read_co2(
     mut scd: Scd4x<i2c::I2c<'static, I2C1, i2c::Blocking>, Delay>,
-    shared_ppm: SharedPPM
+    shared_scd40data: SharedSCD40Data
 ) {
     log::info!("Enter sensor read loop");
     loop {
         if scd.data_ready().unwrap() {
             let m = scd.read_measurement().unwrap();
-            shared_ppm.0.lock().await.value = m.co2;
+            // TODO: is there a way to write this in one block/struct rather than three locks?
+            shared_scd40data.0.lock().await.co2ppm = m.co2;
+            shared_scd40data.0.lock().await.temperature = m.temperature;
+            shared_scd40data.0.lock().await.humidity = m.humidity;
             log::info!(
                 "CO2: {}\nHumidity: {}\nTemperature: {}", m.co2, m.humidity, m.temperature
             )
@@ -276,9 +296,9 @@ async fn main(spawner: Spawner) {
     ////////////////////////////////////////////
     // Shared state required by our to main tasks (sensor reader, web server)
 
-    let co2ppm = CO2PPM { value: 0 };
-    let shared_ppm = SharedPPM(
-        make_static!(Mutex<CriticalSectionRawMutex, CO2PPM>, Mutex::new( co2ppm )),
+    let scd40data = SCD40Data { co2ppm: 0, humidity: 0.0, temperature: 0.0 };
+    let shared_scd40data = SharedSCD40Data(
+        make_static!(Mutex<CriticalSectionRawMutex, SCD40Data>, Mutex::new( scd40data )),
     ); 
 
 
@@ -287,6 +307,7 @@ async fn main(spawner: Spawner) {
     
     log::info!("Starting I2C Comms with SCD40");
     // this code derived from: https://github.com/SvetlinZarev/libscd/blob/main/examples/embassy-scd4x/src/main.rs
+    // TODO: how to make pins configurable?
     let sda = p.PIN_26;
     let scl = p.PIN_27;
     let i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, Config::default());
@@ -304,7 +325,7 @@ async fn main(spawner: Spawner) {
     
     }
 
-    spawner.must_spawn(read_co2(scd, shared_ppm));
+    spawner.must_spawn(read_co2(scd, shared_scd40data));
 
     ////////////////////////////////////////////
     // Set up the HTTP service
@@ -329,7 +350,7 @@ async fn main(spawner: Spawner) {
             stack,
             app,
             config,
-            AppState{ shared_ppm },
+            AppState{ shared_scd40data },
         ));
     }
 }
