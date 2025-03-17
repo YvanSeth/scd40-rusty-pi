@@ -7,9 +7,12 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# web server
+# web server - note local copy used as needed to change Cargo.toml to use embassy git sources
 picoserve = { version = "0.15.0", path = "../picoserve/picoserve/", features = ["embassy"] }
+
+# library for talking to the SCD40 module
 libscd = { version = "0.5.0", git = "https://github.com/SvetlinZarev/libscd.git", features = ["async", "sync", "scd4x", "defmt"] }
+
 embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-sync = { version = "0.6.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy.git", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }

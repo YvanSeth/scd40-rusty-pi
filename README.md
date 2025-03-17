@@ -6,6 +6,29 @@ with an I2C SCD40 module.
 
 ***This is a work in progress.***
 
+## Compiling - picoserve mod
+
+I struggled to get `embassy` + `picoserve` to compile together using crates.io
+sources. Despite the version number of `embassy` being the same it seems that
+using the git sources fixes the problem (the issue is with
+`embassy-time-driver`). But to achieve this I had to also edit the
+`picoserve/Cargo.toml` in the `picoserve` project, which I have checked out and
+sat alongside this project tree and referenced directly in this project's
+`Cargo.toml`. Hopefully in time the issue with the crates.io compatibility will
+be resolved.
+
+```diff
+diff --git a/picoserve/Cargo.toml b/picoserve/Cargo.toml
+index 5bb0084..c9ad350 100644
+--- a/picoserve/Cargo.toml
++++ b/picoserve/Cargo.toml
+@@ -20,2 +20,2 @@ defmt = { version = "0.3.6", optional = true }
+-embassy-net = { version = ">=0.6.0", optional = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
+-embassy-time = { version = ">=0.4.0", optional = true }
++embassy-net = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy.git", optional = true, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
++embassy-time = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy.git", optional = true }
+```
+
 ## License
 
 `scd40-rusty-pi` is licensed under either of
