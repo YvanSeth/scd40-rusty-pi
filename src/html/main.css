@@ -17,3 +17,16 @@ body {
     align-items: center;
     font-family: Arial, sans-serif;
 }
+
+dl {
+    display: grid;
+    grid-template-columns: max-content auto;
+}
+
+dt {
+    grid-column-start: 1;
+}
+
+dd {
+    grid-column-start: 2;
+}

@@ -31,10 +31,13 @@ use {defmt_rtt as _, panic_probe as _};
 
 // ensure the network/password files have no trailing newline
 //  i.e. generate like: echo -n "password" > src/secrets/wifi-password
-const WIFI_NETWORK: &str = include_str!("secrets/wifi-network");
-const WIFI_PASSWORD: &str = include_str!("secrets/wifi-password");
+// see README in src/secrets
+const WIFI_NETWORK: &str = "bendybogalow"; // include_str!("secrets/wifi-network");
+const WIFI_PASSWORD: &str = "parsnipcabbageonion"; // include_str!("secrets/wifi-password");
+// web content
 const INDEX: &str = include_str!("html/index.html");
 const CSS: &str = include_str!("html/main.css");
+const JS: &str = include_str!("html/main.js");
 
 // TODO: I think these calls can be combined?
 bind_interrupts!(struct Irqs {
@@ -109,7 +112,12 @@ impl AppWithStateBuilder for AppProps {
                 get_service(File::css(CSS)),
             )
             .route(
-                "/data", 
+                "/main.js", 
+                get_service(File::javascript(JS)),
+            )
+            /*.route(             // FIXME: for some reason this causes the whole pi to lock up...
+                                  // mutex shenanigans.... 
+                "/data.json", 
                 get(
                     |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
                     async move { picoserve::response::Json(
@@ -122,6 +130,27 @@ impl AppWithStateBuilder for AppProps {
                             )
                         )
                     }
+                ),
+            )*/
+            .route(
+                "/data/co2ppm", 
+                get(
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
+                    async move { picoserve::response::Json( scd40data.lock().await.co2ppm ) }
+                ),
+            )
+            .route(
+                "/data/temperature", 
+                get(
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
+                    async move { picoserve::response::Json( scd40data.lock().await.temperature ) }
+                ),
+            )
+            .route(
+                "/data/humidity", 
+                get(
+                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
+                    async move { picoserve::response::Json( scd40data.lock().await.humidity ) }
                 ),
             )
     }
@@ -167,9 +196,12 @@ async fn read_co2(
     shared_scd40data: SharedSCD40Data
 ) {
     log::info!("Enter sensor read loop");
+    Timer::after_millis(1000).await;
     loop {
         if scd.data_ready().unwrap() {
             let m = scd.read_measurement().unwrap();
+            log::info!("Read a measurement");
+            Timer::after_millis(1000).await;
             // TODO: is there a way to write this in one block/struct rather than three locks?
             shared_scd40data.0.lock().await.co2ppm = m.co2;
             shared_scd40data.0.lock().await.temperature = m.temperature;
@@ -178,7 +210,7 @@ async fn read_co2(
                 "CO2: {}\nHumidity: {}\nTemperature: {}", m.co2, m.humidity, m.temperature
             )
         }
-        Timer::after_secs(1).await;
+        Timer::after_secs(5).await;
     }
 }
 
@@ -250,7 +282,7 @@ async fn main(spawner: Spawner) {
     // if static IP then use this code:
     log::info!("main: configure static IP");
     let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 113), 24),
+        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 39), 24),
         dns_servers: Vec::new(),
         gateway: Some(Ipv4Address::new(192, 168, 1, 254)),
     });
@@ -267,6 +299,7 @@ async fn main(spawner: Spawner) {
     defmt::unwrap!(spawner.spawn(net_task(runner)));
 
     log::info!("main: await network join");
+    Timer::after_millis(1000).await;
     loop {
         match control
             .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
@@ -279,6 +312,8 @@ async fn main(spawner: Spawner) {
         }
         Timer::after_millis(100).await;
     }
+    log::info!("main: network up");
+    Timer::after_millis(1000).await;
 
     // Wait for DHCP, not necessary when using static IP
     /*log::info!("waiting for DHCP...");
@@ -301,31 +336,37 @@ async fn main(spawner: Spawner) {
     // Set up the SCD40 I2C sensor
     
     log::info!("Starting I2C Comms with SCD40");
+    Timer::after_millis(1000).await;
     // this code derived from: https://github.com/SvetlinZarev/libscd/blob/main/examples/embassy-scd4x/src/main.rs
     // TODO: how to make pins configurable?
     let sda = p.PIN_26;
     let scl = p.PIN_27;
     let i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, Config::default());
     log::info!("Initialise Scd4x");
+    Timer::after_millis(1000).await;
     let mut scd = Scd4x::new(i2c, Delay);
 
     // When re-programming, the controller will be restarted, but not the sensor. We try to stop it
     // in order to prevent the rest of the commands failing.
     log::info!("Stop periodic measurements");
+    Timer::after_millis(1000).await;
     _ = scd.stop_periodic_measurement();
 
     log::info!("Sensor serial number: {:?}", scd.serial_number());
+    Timer::after_millis(1000).await;
     if let Err(e) = scd.start_periodic_measurement() {
         log::error!("Failed to start periodic measurement: {:?}", e );
     
     }
-
+    log::info!("Spawn Sensor worker");
+    Timer::after_millis(1000).await;
     spawner.must_spawn(read_co2(scd, shared_scd40data));
 
     ////////////////////////////////////////////
     // Set up the HTTP service
-    
+
     log::info!("Commence HTTP service");
+    Timer::after_millis(5000).await;
 
     let app = make_static!(AppRouter<AppProps>, AppProps.build_app());
 
@@ -336,7 +377,6 @@ async fn main(spawner: Spawner) {
             read_request: Some(Duration::from_secs(1)),
             write: Some(Duration::from_secs(1)),
         })
-        .keep_connection_alive()
     );
 
     for id in 0..WEB_TASK_POOL_SIZE {
@@ -348,5 +388,6 @@ async fn main(spawner: Spawner) {
             AppState{ shared_scd40data },
         ));
     }
+
 }
 
