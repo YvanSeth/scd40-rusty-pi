@@ -1,10 +1,14 @@
-# Meat-Pi
+# scd40-rusty-pi
 
-A project to monitor meat and oven cooking temperatuers using probe thermometers.
+A Raspberry Pi Pico W implementation of a SCD40 based CO2 PPM monitor, it has a
+web interface where the current values can be viewed. This is designed to work
+with an I2C SCD40 module.
+
+***This is a work in progress.***
 
 ## License
 
-Meat-Pi is licensed under either of
+`scd40-rusty-pi` is licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
   <http://www.apache.org/licenses/LICENSE-2.0>)
