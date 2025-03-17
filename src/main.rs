@@ -29,9 +29,10 @@ use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-// oh no, exposing my IoT WiFi credentials to the world ;)
-const WIFI_NETWORK: &str = "bendybogalow";
-const WIFI_PASSWORD: &str = "parsnipcabbageonion";
+// ensure the network/password files have no trailing newline
+//  i.e. generate like: echo -n "password" > src/secrets/wifi-password
+const WIFI_NETWORK: &str = include_str!("secrets/wifi-network");
+const WIFI_PASSWORD: &str = include_str!("secrets/wifi-password");
 const INDEX: &str = include_str!("html/index.html");
 const CSS: &str = include_str!("html/main.css");
 
