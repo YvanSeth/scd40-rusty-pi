@@ -23,7 +23,7 @@ use embassy_time::{Duration, Timer, Delay};
 use heapless::Vec;
 use libscd::synchronous::scd4x::Scd4x;
 use picoserve::extract::State;
-use picoserve::{ make_static, routing::{get, get_service, PathRouter}, AppWithStateBuilder, AppRouter, response::DebugValue };
+use picoserve::{ make_static, routing::{get, get_service, PathRouter}, AppWithStateBuilder, AppRouter };
 use picoserve::response::File;
 use rand::RngCore;
 use static_cell::StaticCell;
@@ -108,27 +108,21 @@ impl AppWithStateBuilder for AppProps {
                 get_service(File::css(CSS)),
             )
             .route(
-                "/data/co2", 
+                "/data", 
                 get(
                     |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| //newbie note: | delimits a closure
-                    async move { DebugValue( scd40data.lock().await.co2ppm) }
+                    async move { picoserve::response::Json(
+                            (
+                                // this generates JSON like [[a,b],[c,d],[e,f]]
+                                // TODO: I'd rather a map but havent found a way to do that
+                                ("co2ppm", scd40data.lock().await.co2ppm),
+                                ("temperature", scd40data.lock().await.temperature),
+                                ("humidity", scd40data.lock().await.humidity),
+                            )
+                        )
+                    }
                 ),
             )
-            .route(
-                "/data/temperature", 
-                get(
-                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>| 
-                    async move { DebugValue( scd40data.lock().await.temperature) }
-                ),
-            )
-            .route(
-                "/data/humidity", 
-                get(
-                    |State(SharedSCD40Data(scd40data)): State<SharedSCD40Data>|
-                    async move { DebugValue( scd40data.lock().await.humidity) }
-                ),
-            )
-            // TODO: is thre a way to genericise the above?
     }
 }
 
@@ -251,13 +245,13 @@ async fn main(spawner: Spawner) {
     // get an IP sorted
 
     // if DHCP then use this code:
-    //    let config = Config::dhcpv4(Default::default());
+    //let config = embassy_net::Config::dhcpv4(Default::default());
     // if static IP then use this code:
     log::info!("main: configure static IP");
     let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 3, 15), 24),
+        address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 113), 24),
         dns_servers: Vec::new(),
-        gateway: Some(Ipv4Address::new(192, 168, 3, 1)),
+        gateway: Some(Ipv4Address::new(192, 168, 1, 254)),
     });
     
     // Generate random seed
@@ -290,8 +284,8 @@ async fn main(spawner: Spawner) {
     while !stack.is_config_up() {
         Timer::after_millis(100).await;
     }
-    log::info!("DHCP is now up!");*/
-
+    log::info!("DHCP is now up!");
+    */
 
     ////////////////////////////////////////////
     // Shared state required by our to main tasks (sensor reader, web server)
