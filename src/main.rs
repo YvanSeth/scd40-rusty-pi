@@ -1,5 +1,13 @@
 //! scd40-rusty-pi: Raspberry Pi Pico W CO2 PPM Monitor with Web Interface
-
+//
+// This is not intended to be example code as I am learning Rust as I go here!
+// I'm sure there are errors and inefficiencies.
+// Comment and feedback welcome!
+//
+// Yvan Seth
+// @yvan@toot.ale.gd
+// code -A@T- seth.id.au
+//
 #![no_std]
 #![no_main]
 // required for impl in AppProps code for picoserve
@@ -32,12 +40,14 @@ use {defmt_rtt as _, panic_probe as _};
 // ensure the network/password files have no trailing newline
 //  i.e. generate like: echo -n "password" > src/secrets/wifi-password
 // see README in src/secrets
-const WIFI_NETWORK: &str = "bendybogalow"; // include_str!("secrets/wifi-network");
-const WIFI_PASSWORD: &str = "parsnipcabbageonion"; // include_str!("secrets/wifi-password");
+const WIFI_NETWORK: &str = include_str!("secrets/wifi-network");
+const WIFI_PASSWORD: &str = include_str!("secrets/wifi-password");
 // web content
 const INDEX: &str = include_str!("html/index.html");
 const CSS: &str = include_str!("html/main.css");
 const JS: &str = include_str!("html/main.js");
+// 2 is plenty of a little IoT thermometer, right?
+const WEB_TASK_POOL_SIZE: usize = 2;
 
 // TODO: I think these calls can be combined?
 bind_interrupts!(struct Irqs {
@@ -155,9 +165,6 @@ impl AppWithStateBuilder for AppProps {
             )
     }
 }
-
-// 2 is plenty of a little IoT thermometer, right?
-const WEB_TASK_POOL_SIZE: usize = 2;
 
 #[embassy_executor::task(pool_size = WEB_TASK_POOL_SIZE)]
 async fn web_task(
