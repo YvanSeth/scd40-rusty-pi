@@ -1,10 +1,18 @@
 # scd40-rusty-pi
 
+![Animation of a web page with CO2PPM, temperature, and humidity values and the CO2PPM value updates every few seconds](images/scd40-web-results-450-gifsicle.gif)
+
 A Raspberry Pi Pico W implementation of a SCD40 based CO2 PPM monitor, it has a
 web interface where the current values can be viewed. This is designed to work
 with an I2C SCD40 module.
 
+Please note that I am on about day 5 of learning Rust, so this code is not
+provided with the intention of it being a correct example to follow. Comments
+and feedback are welcomed! This is part of my own learning process.
+
 ***This is a work in progress.***
+
+![A Pico W next to a SCD40 module on a breadboard connected with some wires](images/pico_w_with_scd40_on_breadboard_20250317_133557.jpg)
 
 ## Compiling - picoserve mod
 
